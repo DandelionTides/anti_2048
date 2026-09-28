@@ -1,0 +1,57 @@
+{
+  "format": "dora-web-features",
+  "version": 2,
+  "activeProfile": "dora-preset",
+  "studioAgentHost": false,
+  "profiles": {
+    "core": {
+      "available": true,
+      "description": "Smallest configurable Dora Web Player base"
+    },
+    "dora-preset": {
+      "available": true,
+      "description": "Default runtime for all Dora-Demo games"
+    },
+    "custom": {
+      "available": true,
+      "description": "Feature-switch configured runtime"
+    }
+  },
+  "modules": {
+    "lua": true,
+    "content": true,
+    "http": true,
+    "idbfs": true,
+    "doraPackage": true,
+    "input": true,
+    "audio": true,
+    "musicGenerator": false,
+    "drawNode": true,
+    "sprite": true,
+    "label": true,
+    "renderTarget": true,
+    "particle": true,
+    "spine": true,
+    "dragonBones": true,
+    "nanoVG": true,
+    "playRho2D": true,
+    "entity": true,
+    "platformer": true,
+    "builtinLuaLibraries": true,
+    "imGui": true,
+    "threads": false,
+    "crossOriginIsolationRequired": false,
+    "dynamicLinking": false,
+    "rustBridge": true,
+    "wasmRuntime": false,
+    "yueCompiler": false,
+    "machineLearning": true,
+    "tealCompiler": false,
+    "xmlCompiler": false,
+    "loveNode": true,
+    "model3D": true,
+    "jolt3D": true,
+    "video": false,
+    "workspace": false
+  }
+}
