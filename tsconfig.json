@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "ignoreDeprecations": "6.0",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Classic",
+    "baseUrl": ".",
+    "paths": {
+      "Dora": ["API/Dora.d.ts"],
+      "Script/*": ["Script/*"]
+    },
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "tstl": {
+    "luaTarget": "5.4",
+    "luaLibImport": "require",
+    "noImplicitSelf": false,
+    "noHeader": true,
+    "noResolvePaths": ["Dora"]
+  },
+  "include": ["init.ts", "Script/**/*.ts", "API/**/*.d.ts"],
+  "exclude": ["tests"]
+}

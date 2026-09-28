@@ -1,0 +1,185 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { DIFFICULTY_PRESETS, ENDLESS_PRESET, NORMAL_PRESET } from "../Script/Config.ts";
+import { GameSession, endlessNumberPoolForMove, hasAnyLegalMove, initializeBoard } from "../Script/Core.ts";
+import { GameTimer, formatTime } from "../Script/GameTimer.ts";
+import { SaveRepository, SAVE_VERSION } from "../Script/SaveData.ts";
+import { boardFromRows, boardToRows } from "./TestBoard.ts";
+
+test("ScoreManager awards original split value and never awards merges", () => {
+  const splitState = boardFromRows([[8, null], [2, 4]]);
+  const splitSession = new GameSession({ ...NORMAL_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0 }, () => 0, undefined, splitState);
+  const split = splitSession.move("left");
+  assert.equal(split.scoreDelta, 8);
+  assert.equal(splitSession.score, 8);
+
+  const mergeState = boardFromRows([[2, 2], [8, 16]]);
+  const mergeSession = new GameSession({ ...NORMAL_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0 }, () => 0, undefined, mergeState);
+  const merge = mergeSession.move("left");
+  assert.equal(merge.mergeEvents.length, 1);
+  assert.equal(merge.scoreDelta, 0);
+  assert.equal(mergeSession.score, 0);
+});
+
+test("endless mode spawns NUMBER every move and Divider before NUMBER every second move", () => {
+  const initial = boardFromRows([[64, null, null, null], [null, null, null, null], [null, null, null, null], [null, null, null, null]]);
+  const session = new GameSession(
+    { ...ENDLESS_PRESET, initialTileCount: 0, allowedDivisors: [4], endlessNumberStages: [{ fromMove: 1, values: [2] }] },
+    () => 0,
+    undefined,
+    initial,
+    { mode: "endless" },
+  );
+  const first = session.move("right");
+  assert.equal(first.spawnEvents.length, 1);
+  assert.equal(first.spawnEvents[0].tile.kind, "NUMBER");
+  const second = session.move("left");
+  assert.equal(second.spawnEvents.length, 2);
+  assert.equal(second.spawnEvents[0].tile.kind, "DIVIDER");
+  assert.equal(second.spawnEvents[1].tile.kind, "NUMBER");
+  assert.equal(second.spawnEvents[1].tile.kind === "NUMBER" && second.spawnEvents[1].tile.value, 2);
+});
+
+test("with one post-move empty endless mode prioritizes Divider and skips NUMBER", () => {
+  const initial = boardFromRows([[2, 2], [8, 16]]);
+  const session = new GameSession(
+    { ...ENDLESS_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0, allowedDivisors: [2], endlessNumberStages: [{ fromMove: 1, values: [1] }] },
+    () => 0,
+    undefined,
+    initial,
+    { mode: "endless" },
+  );
+  session.moveCount = 1;
+  const result = session.move("left");
+  assert.equal(result.spawnEvents.length, 1);
+  assert.equal(result.spawnEvents[0].tile.kind, "DIVIDER");
+  assert.equal(result.state.cells.filter(cell => cell.kind === "EMPTY").length, 0);
+});
+
+test("Game Over checks legal movement and merging rather than only fullness", () => {
+  assert.equal(hasAnyLegalMove(boardFromRows([[2, 2], [8, 16]])), true);
+  assert.equal(hasAnyLegalMove(boardFromRows([["÷2", "÷2"], [8, 16]])), true);
+  assert.equal(hasAnyLegalMove(boardFromRows([[2, 4], [8, 16]])), false);
+});
+
+test("undo restores the exact pre-spawn board without changing elapsed time", () => {
+  const initial = boardFromRows([[1, null], [8, 16]]);
+  const session = new GameSession({ ...NORMAL_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0 }, () => 0, undefined, initial);
+  const timer = new GameTimer(true);
+  timer.start();
+  timer.update(3.25);
+  session.move("right");
+  const timeBeforeUndo = timer.milliseconds;
+  assert.equal(session.undo(), true);
+  assert.deepEqual(boardToRows(session.state), [[1, null], [8, 16]]);
+  assert.equal(timer.milliseconds, timeBeforeUndo);
+});
+
+test("undo restores divider spawn cadence", () => {
+  const initial = boardFromRows([
+    [64, null, null, null],
+    [null, null, null, null],
+    [null, null, null, null],
+    [null, null, null, null],
+  ]);
+  const session = new GameSession({ ...NORMAL_PRESET, initialTileCount: 0, allowedDivisors: [2] }, () => 0, undefined, initial);
+  session.move("right");
+  const second = session.move("left");
+  assert.equal(second.spawnEvents[0].tile.kind, "DIVIDER");
+  assert.equal(session.moveCount, 2);
+  assert.equal(session.undo(), true);
+  assert.equal(session.moveCount, 1);
+  assert.equal(session.state.cells.some(cell => cell.kind === "DIVIDER"), false);
+  const replay = session.move("left");
+  assert.equal(replay.spawnEvents[0].tile.kind, "DIVIDER");
+});
+
+test("timer excludes paused time and formatter uses hours minutes seconds", () => {
+  const timer = new GameTimer(true);
+  timer.start();
+  timer.update(1.234);
+  timer.pause();
+  timer.update(5);
+  timer.resume();
+  timer.update(0.006);
+  assert.equal(timer.milliseconds, 1240);
+  assert.equal(formatTime(timer.milliseconds), "00:00:01");
+  assert.equal(formatTime(3661999), "01:01:01");
+  const disabled = new GameTimer(false);
+  disabled.start();
+  disabled.update(10);
+  assert.equal(disabled.milliseconds, 0);
+});
+
+test("save data persists volume and records with saveVersion", () => {
+  let memory: string | undefined;
+  const port = { load: () => memory, save: (content: string) => { memory = content; return true; } };
+  const repository = new SaveRepository(port);
+  repository.setVolume(0.35);
+  repository.recordEndless(120, 64);
+  repository.recordDifficulty(DIFFICULTY_PRESETS[1], 80, 5432);
+  const reloaded = new SaveRepository(port);
+  assert.equal(reloaded.data.saveVersion, SAVE_VERSION);
+  assert.equal(reloaded.data.volume, 0.35);
+  assert.equal(reloaded.data.endlessBestScore, 120);
+  assert.equal(reloaded.data.endlessHighestNumber, 64);
+  assert.equal(reloaded.data.difficultyRecords.normal.bestScore, 80);
+  assert.equal(reloaded.data.difficultyRecords.normal.bestTimeMs, 5432);
+});
+
+test("all three difficulty presets expose required independent configuration", () => {
+  assert.deepEqual(DIFFICULTY_PRESETS.map(preset => preset.id), ["easy", "normal", "hard"]);
+  for (const preset of DIFFICULTY_PRESETS) {
+    assert.ok(preset.initialTileCount > 0);
+    assert.ok(preset.initialValues.length > 0);
+    assert.ok(preset.allowedDivisors.length > 0);
+    assert.equal(preset.dividerSpawnInterval, 2);
+    assert.equal(typeof preset.defaultTimed, "boolean");
+    assert.equal(preset.targetRule, "CLEAR_ALL_NUMBERS");
+  }
+});
+
+test("difficulty initialization uses the configured larger exact totals", () => {
+  const expectedTotals = [64, 128, 256];
+  DIFFICULTY_PRESETS.forEach((preset, presetIndex) => {
+    for (let seed = 1; seed <= 8; seed += 1) {
+      let value = seed;
+      const random = () => ((value = (value * 48271) % 2147483647) / 2147483647);
+      const state = initializeBoard(preset, random);
+      const numbers = state.cells.filter(cell => cell.kind === "NUMBER");
+      assert.equal(numbers.length, preset.initialTileCount);
+      assert.equal(numbers.reduce((sum, cell) => sum + (cell.kind === "NUMBER" ? cell.value : 0), 0), expectedTotals[presetIndex]);
+      assert.ok(state.cells.filter(cell => cell.kind === "EMPTY").length >= 4);
+    }
+  });
+});
+
+test("endless number stages increase both maximum value and top-value probability", () => {
+  const moves = [1, 20, 50, 100, 160, 240, 360];
+  let previousMaximum = 0;
+  let previousTopChance = 0;
+  moves.forEach(move => {
+    const pool = endlessNumberPoolForMove(ENDLESS_PRESET, move);
+    const maximum = Math.max(...pool);
+    const topChance = pool.filter(value => value === maximum).length / pool.length;
+    assert.ok(maximum > previousMaximum);
+    assert.ok(topChance > previousTopChance);
+    previousMaximum = maximum;
+    previousTopChance = topChance;
+  });
+  assert.deepEqual(endlessNumberPoolForMove(ENDLESS_PRESET, 49), ENDLESS_PRESET.endlessNumberStages[1].values);
+});
+
+test("undo history respects its configured finite limit", () => {
+  const initial = boardFromRows([
+    [64, null, null, null],
+    [null, null, null, null],
+    [null, null, null, null],
+    [null, null, null, null],
+  ]);
+  const session = new GameSession({ ...NORMAL_PRESET, initialTileCount: 0 }, () => 0, undefined, initial, { maxHistory: 2 });
+  session.move("right");
+  session.move("left");
+  session.move("down");
+  assert.equal(session.history.length, 2);
+});

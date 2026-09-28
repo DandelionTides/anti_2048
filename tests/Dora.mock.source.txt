@@ -1,0 +1,14 @@
+export const json = {
+  encode(value: object): [string | undefined, string | undefined] {
+    try { return [JSON.stringify(value), undefined]; }
+    catch (error) { return [undefined, String(error)]; }
+  },
+  decode(value: string): [unknown, string | undefined] {
+    try { return [JSON.parse(value), undefined]; }
+    catch (error) { return [undefined, String(error)]; }
+  },
+};
+
+export const App = {
+  get rand(): number { return 2147483647; },
+};
