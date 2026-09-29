@@ -1,5 +1,6 @@
-export type GameMode = "difficulty" | "endless";
+export type GameMode = "difficulty" | "endless" | "tutorial";
 export type TargetRule = "CLEAR_ALL_NUMBERS" | "ENDLESS";
+export type OperatorKind = "DIVIDER" | "MULTIPLIER" | "ROOT" | "COOKIE";
 
 export interface EndlessNumberStage {
   fromMove: number;
@@ -15,7 +16,12 @@ export interface DifficultyPreset {
   initialValues: number[];
   minInitialEmptyCells: number;
   allowedDivisors: number[];
-  dividerSpawnInterval: number;
+  allowedMultipliers: number[];
+  /** Repeated kinds are deliberate probability weights and never scale with move count. */
+  operatorPool: OperatorKind[];
+  operatorSpawnInterval: number;
+  /** Endless chooses one tile per effective swipe from NUMBER vs OPERATOR. */
+  endlessNumberChance: number;
   defaultTimed: boolean;
   targetRule: TargetRule;
   /** Repeated values are deliberate probability weights for endless spawns. */
@@ -30,7 +36,10 @@ export const EASY_PRESET: DifficultyPreset = {
   initialValues: [4, 4, 4, 4, 8, 8, 16, 16],
   minInitialEmptyCells: 4,
   allowedDivisors: [2, 4],
-  dividerSpawnInterval: 2,
+  allowedMultipliers: [2, 4],
+  operatorPool: ["DIVIDER", "DIVIDER", "MULTIPLIER", "ROOT", "COOKIE"],
+  operatorSpawnInterval: 2,
+  endlessNumberChance: 0.6,
   defaultTimed: false,
   targetRule: "CLEAR_ALL_NUMBERS",
   endlessNumberStages: [],
@@ -44,7 +53,10 @@ export const NORMAL_PRESET: DifficultyPreset = {
   initialValues: [4, 4, 4, 4, 8, 8, 16, 16, 32, 32],
   minInitialEmptyCells: 4,
   allowedDivisors: [2, 4, 8],
-  dividerSpawnInterval: 2,
+  allowedMultipliers: [2, 4],
+  operatorPool: ["DIVIDER", "DIVIDER", "MULTIPLIER", "MULTIPLIER", "ROOT", "COOKIE"],
+  operatorSpawnInterval: 2,
+  endlessNumberChance: 0.6,
   defaultTimed: false,
   targetRule: "CLEAR_ALL_NUMBERS",
   endlessNumberStages: [],
@@ -58,7 +70,10 @@ export const HARD_PRESET: DifficultyPreset = {
   initialValues: [8, 8, 8, 8, 16, 16, 16, 16, 32, 32, 32, 64],
   minInitialEmptyCells: 4,
   allowedDivisors: [2, 4, 8, 16],
-  dividerSpawnInterval: 2,
+  allowedMultipliers: [2, 4],
+  operatorPool: ["DIVIDER", "DIVIDER", "MULTIPLIER", "MULTIPLIER", "ROOT", "COOKIE"],
+  operatorSpawnInterval: 2,
+  endlessNumberChance: 0.6,
   defaultTimed: true,
   targetRule: "CLEAR_ALL_NUMBERS",
   endlessNumberStages: [],
@@ -71,12 +86,12 @@ export const ENDLESS_PRESET: DifficultyPreset = {
   targetRule: "ENDLESS",
   endlessNumberStages: [
     { fromMove: 1, values: [1, 1, 1, 2, 2, 4] },
-    { fromMove: 20, values: [1, 2, 2, 4, 4, 8, 8] },
-    { fromMove: 50, values: [2, 4, 4, 8, 8, 16, 16, 16] },
-    { fromMove: 100, values: [4, 8, 8, 16, 16, 32, 32, 32, 32] },
-    { fromMove: 160, values: [8, 16, 16, 32, 32, 64, 64, 64, 64, 64] },
-    { fromMove: 240, values: [16, 32, 32, 64, 64, 128, 128, 128, 128, 128, 128] },
-    { fromMove: 360, values: [32, 64, 64, 128, 128, 256, 256, 256, 256, 256, 256, 256] },
+    { fromMove: 30, values: [1, 2, 2, 4, 4, 8, 8] },
+    { fromMove: 70, values: [2, 4, 4, 8, 8, 16, 16, 16] },
+    { fromMove: 120, values: [4, 8, 8, 16, 16, 32, 32, 32, 32] },
+    { fromMove: 190, values: [8, 16, 16, 32, 32, 64, 64, 64, 64, 64] },
+    { fromMove: 280, values: [16, 32, 32, 64, 64, 128, 128, 128, 128, 128, 128] },
+    { fromMove: 400, values: [32, 64, 64, 128, 128, 256, 256, 256, 256, 256, 256, 256] },
   ],
 };
 

@@ -1,18 +1,18 @@
 local ____lualib = require("lualib_bundle")
 local __TS__New = ____lualib.__TS__New
-local __TS__ArrayMap = ____lualib.__TS__ArrayMap
+local __TS__ArrayReduce = ____lualib.__TS__ArrayReduce
 local __TS__ArrayForEach = ____lualib.__TS__ArrayForEach
 local __TS__ArrayFind = ____lualib.__TS__ArrayFind
 local __TS__ArraySome = ____lualib.__TS__ArraySome
 local __TS__ArrayFilter = ____lualib.__TS__ArrayFilter
-local __TS__ArrayReduce = ____lualib.__TS__ArrayReduce
 local ____exports = {}
-local rectangle, makeText, addText, addButton, addPanel, clearScreen, go, renderHeader, renderMainMenu, renderModeSelect, renderDifficultySelect, renderTimerSelect, renderRules, renderSettings, boardMetrics, positionToPoint, tileColor, createTile, addSplitOneGhosts, addMergeGhosts, addDividerGhosts, addDividerMergeGhosts, renderBoard, renderPlaying, renderPause, highestNumber, recordOutcome, renderOutcome, renderScreen, startGame, pauseGame, resumeGame, undoMove, finishMove, attemptMove, BOARD_WIDTH, BOARD_CENTER_Y, CELL_GAP, SWIPE_THRESHOLD, ANIMATION_TIME, FONT, COLORS, saves, audio, root, screenLayer, boardLayer, animationLayer, screens, rulesReturnState, pendingMode, pendingPreset, session, gameTimer, inputLocked, swipeStart, gestureSurface, timerLabel, recordedOutcome
+local rectangle, makeText, addText, addButton, addPanel, clearScreen, launchBarrage, playTutorialBarrage, go, renderHeader, renderMainMenu, renderModeSelect, renderTutorialSelect, renderDifficultySelect, renderTimerSelect, renderRules, renderSettings, boardMetrics, positionToPoint, tileColor, tileText, createTile, addSplitOneGhosts, addMergeGhosts, addDividerGhosts, addMultiplierGhosts, addRootGhosts, addCookieGhosts, addDividerMergeGhosts, addMultiplierMergeGhosts, renderBoard, renderPlaying, renderPause, highestNumber, recordOutcome, renderOutcome, renderScreen, startGame, startTutorial, pauseGame, resumeGame, undoMove, finishMove, attemptMove, BOARD_WIDTH, BOARD_CENTER_Y, CELL_GAP, SWIPE_THRESHOLD, ANIMATION_TIME, FONT, COLORS, saves, audio, root, screenLayer, boardLayer, animationLayer, barrageLayer, screens, rulesReturnState, pendingMode, pendingPreset, session, gameTimer, inputLocked, swipeStart, gestureSurface, timerLabel, recordedOutcome, activeTutorial, barrageGeneration
 local ____Dora = require("Dora")
 local App = ____Dora.App
 local ClipNode = ____Dora.ClipNode
 local Color = ____Dora.Color
 local Content = ____Dora.Content
+local Delay = ____Dora.Delay
 local Director = ____Dora.Director
 local DrawNode = ____Dora.DrawNode
 local Ease = ____Dora.Ease
@@ -22,6 +22,7 @@ local Move = ____Dora.Move
 local Node = ____Dora.Node
 local Opacity = ____Dora.Opacity
 local Scale = ____Dora.Scale
+local Sequence = ____Dora.Sequence
 local Spawn = ____Dora.Spawn
 local Size = ____Dora.Size
 local Vec2 = ____Dora.Vec2
@@ -51,6 +52,9 @@ local ____Layout = require("Script.Layout")
 local DESIGN_HEIGHT = ____Layout.DESIGN_HEIGHT
 local DESIGN_WIDTH = ____Layout.DESIGN_WIDTH
 local fitPortraitCanvas = ____Layout.fitPortraitCanvas
+local ____Tutorial = require("Script.Tutorial")
+local TUTORIAL_LEVELS = ____Tutorial.TUTORIAL_LEVELS
+local createTutorialBoard = ____Tutorial.createTutorialBoard
 function rectangle(self, width, height, color, borderColor)
     local draw = DrawNode()
     local hw = width / 2
@@ -167,12 +171,79 @@ function addPanel(self, parent, width, height, x, y)
     panel:addTo(parent)
     return panel
 end
-function clearScreen(self)
+function clearScreen(self, preserveBarrage)
+    if preserveBarrage == nil then
+        preserveBarrage = false
+    end
     screenLayer:removeAllChildren()
     boardLayer:removeAllChildren()
     animationLayer:removeAllChildren()
+    if not preserveBarrage then
+        barrageLayer:removeAllChildren()
+        barrageGeneration = barrageGeneration + 1
+    end
     gestureSurface = nil
     timerLabel = nil
+end
+function launchBarrage(self, text, generation)
+    if generation ~= barrageGeneration then
+        return
+    end
+    local fadeIn = 0.45
+    local hold = 4
+    local fadeOut = 0.75
+    local duration = fadeIn + hold + fadeOut
+    local card = Node()
+    card.position = Vec2(0, 350)
+    card.opacity = 0
+    rectangle(
+        nil,
+        620,
+        88,
+        COLORS.ink,
+        COLORS.white
+    ):addTo(card)
+    addText(
+        nil,
+        card,
+        text,
+        30,
+        0,
+        0,
+        COLORS.white,
+        590
+    )
+    card:perform(Sequence(
+        Opacity(fadeIn, 0, 1, Ease.OutQuad),
+        Delay(hold),
+        Opacity(fadeOut, 1, 0, Ease.OutQuad)
+    ))
+    card:addTo(barrageLayer)
+    root:once(function()
+        sleep(duration)
+        if generation == barrageGeneration then
+            card:removeFromParent()
+        end
+    end)
+end
+function playTutorialBarrage(self, messages)
+    barrageLayer:removeAllChildren()
+    barrageGeneration = barrageGeneration + 1
+    local generation = barrageGeneration
+    root:once(function()
+        sleep(0.12)
+        do
+            local index = 0
+            while index < #messages do
+                if generation ~= barrageGeneration then
+                    return
+                end
+                launchBarrage(nil, messages[index + 1], generation)
+                sleep(5.35)
+                index = index + 1
+            end
+        end
+    end)
 end
 function go(self, state)
     screens:go(state)
@@ -222,15 +293,24 @@ function renderMainMenu(self)
         screenLayer,
         "开始游戏",
         0,
-        65,
+        105,
         function() return go(nil, "MODE_SELECT") end
+    )
+    addButton(
+        nil,
+        screenLayer,
+        "教学关卡",
+        0,
+        -5,
+        function() return go(nil, "TUTORIAL_SELECT") end,
+        {color = COLORS.root}
     )
     addButton(
         nil,
         screenLayer,
         "规则",
         0,
-        -55,
+        -115,
         function()
             rulesReturnState = "MAIN_MENU"
             go(nil, "RULES")
@@ -250,7 +330,7 @@ function renderMainMenu(self)
         nil,
         screenLayer,
         "每一步，只生成规则允许的方块",
-        21,
+        23,
         0,
         -430,
         COLORS.muted
@@ -295,13 +375,47 @@ function renderModeSelect(self)
     addText(
         nil,
         screenLayer,
-        "每步补充数字 · 数值随步数提升 · 每 2 步生成 Divider",
-        20,
+        "每步随机补 1 个数字或符号 · 大数字概率缓慢提升",
+        22,
         0,
         -148,
         COLORS.muted,
         650
     )
+end
+function renderTutorialSelect(self)
+    renderHeader(
+        nil,
+        "教学关卡",
+        function() return go(nil, "MAIN_MENU") end
+    )
+    do
+        local index = 0
+        while index < #TUTORIAL_LEVELS do
+            local level = TUTORIAL_LEVELS[index + 1]
+            local y = 360 - index * 125
+            addButton(
+                nil,
+                screenLayer,
+                (integerText(nil, level.id) .. ". ") .. level.title,
+                0,
+                y,
+                function() return startTutorial(nil, level) end,
+                {width = 590, height = 74, color = index < 5 and COLORS.primary or (index == 5 and COLORS.cookie or COLORS.divider), fontSize = 26}
+            )
+            addText(
+                nil,
+                screenLayer,
+                level.shortDescription,
+                20,
+                0,
+                y - 50,
+                COLORS.muted,
+                640
+            )
+            index = index + 1
+        end
+    end
 end
 function renderDifficultySelect(self)
     renderHeader(
@@ -313,18 +427,6 @@ function renderDifficultySelect(self)
         DIFFICULTY_PRESETS,
         function(____, preset, index)
             local y = 240 - index * 190
-            local initialTotal = __TS__ArrayReduce(
-                preset.initialValues,
-                function(____, sum, value) return sum + value end,
-                0
-            )
-            local difficultySummary = ((((("初始 " .. integerText(nil, preset.initialTileCount)) .. " 块 · 总和 ") .. integerText(nil, initialTotal)) .. " · 数字 ") .. integerText(
-                nil,
-                math.min(table.unpack(preset.initialValues))
-            )) .. "–" .. integerText(
-                nil,
-                math.max(table.unpack(preset.initialValues))
-            )
             addButton(
                 nil,
                 screenLayer,
@@ -338,11 +440,22 @@ function renderDifficultySelect(self)
                 end,
                 {color = index == 0 and Color(4283873690) or (index == 1 and COLORS.primary or Color(4293036641))}
             )
+            local initialTotal = __TS__ArrayReduce(
+                preset.initialValues,
+                function(____, sum, value) return sum + value end,
+                0
+            )
             addText(
                 nil,
                 screenLayer,
-                difficultySummary,
-                18,
+                (((((("初始 " .. integerText(nil, preset.initialTileCount)) .. " 块 · 总和 ") .. integerText(nil, initialTotal)) .. " · 数字 ") .. integerText(
+                    nil,
+                    math.min(table.unpack(preset.initialValues))
+                )) .. "–") .. integerText(
+                    nil,
+                    math.max(table.unpack(preset.initialValues))
+                ),
+                20,
                 0,
                 y - 62,
                 COLORS.muted,
@@ -424,7 +537,7 @@ function renderRules(self)
                 nil,
                 content,
                 section.body,
-                19,
+                21,
                 -310,
                 y - 30,
                 COLORS.ink,
@@ -434,7 +547,7 @@ function renderRules(self)
             if body then
                 body.anchor = Vec2(0, 1)
             end
-            y = y - (48 + section.lines * 24)
+            y = y - (52 + section.lines * 27)
         end
     )
     local maxScroll = math.max(0, -410 - y)
@@ -468,7 +581,7 @@ function renderRules(self)
             nil,
             screenLayer,
             "上下拖动查看完整规则",
-            18,
+            21,
             0,
             -535,
             COLORS.muted
@@ -590,6 +703,15 @@ function tileColor(self, cell)
     if cell.kind == "DIVIDER" then
         return COLORS.divider
     end
+    if cell.kind == "MULTIPLIER" then
+        return COLORS.multiplier
+    end
+    if cell.kind == "ROOT" then
+        return COLORS.root
+    end
+    if cell.kind == "COOKIE" then
+        return COLORS.cookie
+    end
     if cell.kind == "EMPTY" then
         return COLORS.slot
     end
@@ -609,6 +731,24 @@ function tileColor(self, cell)
     )
     return Color(colors[math.max(0, level) + 1])
 end
+function tileText(self, cell)
+    if cell.kind == "NUMBER" then
+        return integerText(nil, cell.value)
+    end
+    if cell.kind == "DIVIDER" then
+        return "÷" .. integerText(nil, cell.divisor)
+    end
+    if cell.kind == "MULTIPLIER" then
+        return "×" .. integerText(nil, cell.factor)
+    end
+    if cell.kind == "ROOT" then
+        return "√"
+    end
+    if cell.kind == "COOKIE" then
+        return "饼干"
+    end
+    return ""
+end
 function createTile(self, cell, position, result)
     if cell.kind == "EMPTY" or not session then
         return nil
@@ -618,12 +758,13 @@ function createTile(self, cell, position, result)
     local tile = Node()
     local finalPoint = positionToPoint(nil, position, session.state.size)
     tile.position = finalPoint
+    local operator = cell.kind ~= "NUMBER"
     rectangle(
         nil,
         cellSize,
         cellSize,
         tileColor(nil, cell),
-        cell.kind == "DIVIDER" and COLORS.dividerInner or nil
+        operator and COLORS.white or nil
     ):addTo(tile)
     if cell.kind == "DIVIDER" then
         rectangle(
@@ -637,11 +778,11 @@ function createTile(self, cell, position, result)
     addText(
         nil,
         tile,
-        cell.kind == "NUMBER" and integerText(nil, cell.value) or "÷" .. integerText(nil, cell.divisor),
-        cell.kind == "DIVIDER" and 38 or 46,
+        tileText(nil, cell),
+        cell.kind == "COOKIE" and 27 or (operator and 38 or 46),
         0,
         0,
-        cell.kind == "DIVIDER" and COLORS.white or COLORS.ink
+        operator and COLORS.white or COLORS.ink
     )
     if result then
         local movement = __TS__ArrayFind(
@@ -664,6 +805,10 @@ function createTile(self, cell, position, result)
             result.dividerMergeEvents,
             function(____, event) return event.resultTileId == cell.id end
         )
+        local multiplierMerge = __TS__ArrayFind(
+            result.multiplierMergeEvents,
+            function(____, event) return event.resultTileId == cell.id end
+        )
         local spawned = __TS__ArraySome(
             result.spawnEvents,
             function(____, event) return event.tileId == cell.id end
@@ -671,7 +816,7 @@ function createTile(self, cell, position, result)
         local start = movement and positionToPoint(nil, movement.from, session.state.size) or (createdBySplit and positionToPoint(nil, createdBySplit.source, session.state.size) or finalPoint)
         if movement or createdBySplit then
             tile.position = start
-            if merge or dividerMerge or createdBySplit or sourceSplit then
+            if merge or dividerMerge or multiplierMerge or createdBySplit or sourceSplit then
                 tile.scaleX = 0.72
                 tile.scaleY = 0.72
                 tile:perform(Spawn(
@@ -681,7 +826,7 @@ function createTile(self, cell, position, result)
             else
                 tile:perform(Move(ANIMATION_TIME, start, finalPoint, Ease.OutQuad))
             end
-        elseif merge or dividerMerge or spawned then
+        elseif merge or dividerMerge or multiplierMerge or spawned then
             tile.scaleX = 0.55
             tile.scaleY = 0.55
             tile.opacity = spawned and 0 or 1
@@ -814,9 +959,132 @@ function addDividerGhosts(self, result)
                 nil,
                 ghost,
                 (integerText(nil, event.originalValue) .. "→") .. integerText(nil, event.resultValue),
-                18,
+                22,
                 0,
                 -cellSize * 0.3,
+                COLORS.white
+            )
+            ghost:perform(Spawn(
+                Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad),
+                Opacity(ANIMATION_TIME, 1, 0)
+            ))
+            ghost:addTo(animationLayer)
+        end
+    )
+end
+function addMultiplierGhosts(self, result)
+    if not session then
+        return
+    end
+    local ____boardMetrics_result_7 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_7.cellSize
+    __TS__ArrayForEach(
+        result.multiplierEvents,
+        function(____, event)
+            local ghost = Node()
+            ghost.position = positionToPoint(nil, event.position, session.state.size)
+            rectangle(
+                nil,
+                cellSize,
+                cellSize,
+                COLORS.multiplier,
+                COLORS.white
+            ):addTo(ghost)
+            addText(
+                nil,
+                ghost,
+                "×" .. integerText(nil, event.factor),
+                38,
+                0,
+                0,
+                COLORS.white
+            )
+            addText(
+                nil,
+                ghost,
+                (integerText(nil, event.originalValue) .. "→") .. integerText(nil, event.resultValue),
+                22,
+                0,
+                -cellSize * 0.3,
+                COLORS.white
+            )
+            ghost:perform(Spawn(
+                Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad),
+                Opacity(ANIMATION_TIME, 1, 0)
+            ))
+            ghost:addTo(animationLayer)
+        end
+    )
+end
+function addRootGhosts(self, result)
+    if not session then
+        return
+    end
+    local ____boardMetrics_result_8 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_8.cellSize
+    __TS__ArrayForEach(
+        result.rootEvents,
+        function(____, event)
+            local ghost = Node()
+            ghost.position = positionToPoint(nil, event.position, session.state.size)
+            rectangle(
+                nil,
+                cellSize,
+                cellSize,
+                COLORS.root,
+                COLORS.white
+            ):addTo(ghost)
+            addText(
+                nil,
+                ghost,
+                "√",
+                42,
+                0,
+                0,
+                COLORS.white
+            )
+            addText(
+                nil,
+                ghost,
+                (integerText(nil, event.originalValue) .. "→") .. integerText(nil, event.resultValue),
+                22,
+                0,
+                -cellSize * 0.3,
+                COLORS.white
+            )
+            ghost:perform(Spawn(
+                Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad),
+                Opacity(ANIMATION_TIME, 1, 0)
+            ))
+            ghost:addTo(animationLayer)
+        end
+    )
+end
+function addCookieGhosts(self, result)
+    if not session then
+        return
+    end
+    local ____boardMetrics_result_9 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_9.cellSize
+    __TS__ArrayForEach(
+        result.cookieEvents,
+        function(____, event)
+            local ghost = Node()
+            ghost.position = positionToPoint(nil, event.position, session.state.size)
+            rectangle(
+                nil,
+                cellSize,
+                cellSize,
+                COLORS.cookie,
+                COLORS.white
+            ):addTo(ghost)
+            addText(
+                nil,
+                ghost,
+                event.triggered and "×2!" or "饼干",
+                event.triggered and 34 or 27,
+                0,
+                0,
                 COLORS.white
             )
             ghost:perform(Spawn(
@@ -831,8 +1099,8 @@ function addDividerMergeGhosts(self, result)
     if not session then
         return
     end
-    local ____boardMetrics_result_7 = boardMetrics(nil, session.state.size)
-    local cellSize = ____boardMetrics_result_7.cellSize
+    local ____boardMetrics_result_10 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_10.cellSize
     __TS__ArrayForEach(
         result.dividerMergeEvents,
         function(____, event)
@@ -880,6 +1148,52 @@ function addDividerMergeGhosts(self, result)
         end
     )
 end
+function addMultiplierMergeGhosts(self, result)
+    if not session then
+        return
+    end
+    local ____boardMetrics_result_13 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_13.cellSize
+    __TS__ArrayForEach(
+        result.multiplierMergeEvents,
+        function(____, event)
+            local finalMove = __TS__ArrayFind(
+                result.moveEvents,
+                function(____, move) return move.tileId == event.resultTileId end
+            )
+            local destination = positionToPoint(nil, finalMove and finalMove.to or event.destination, session.state.size)
+            __TS__ArrayForEach(
+                event.sources,
+                function(____, source)
+                    local ghost = Node()
+                    local start = positionToPoint(nil, source, session.state.size)
+                    ghost.position = start
+                    rectangle(
+                        nil,
+                        cellSize,
+                        cellSize,
+                        COLORS.multiplier,
+                        COLORS.white
+                    ):addTo(ghost)
+                    addText(
+                        nil,
+                        ghost,
+                        "×" .. integerText(nil, event.resultFactor / 2),
+                        38,
+                        0,
+                        0,
+                        COLORS.white
+                    )
+                    ghost:perform(Spawn(
+                        Move(ANIMATION_TIME, start, destination, Ease.OutQuad),
+                        Opacity(ANIMATION_TIME, 0.9, 0)
+                    ))
+                    ghost:addTo(animationLayer)
+                end
+            )
+        end
+    )
+end
 function renderBoard(self, result)
     if not session then
         return
@@ -889,8 +1203,8 @@ function renderBoard(self, result)
     local boardBack = rectangle(nil, BOARD_WIDTH, BOARD_WIDTH, COLORS.board)
     boardBack.position = Vec2(0, BOARD_CENTER_Y)
     boardBack:addTo(boardLayer)
-    local ____boardMetrics_result_10 = boardMetrics(nil, session.state.size)
-    local cellSize = ____boardMetrics_result_10.cellSize
+    local ____boardMetrics_result_16 = boardMetrics(nil, session.state.size)
+    local cellSize = ____boardMetrics_result_16.cellSize
     do
         local row = 0
         while row < session.state.size do
@@ -914,8 +1228,12 @@ function renderBoard(self, result)
     if result then
         addSplitOneGhosts(nil, result)
         addDividerGhosts(nil, result)
+        addMultiplierGhosts(nil, result)
+        addRootGhosts(nil, result)
+        addCookieGhosts(nil, result)
         addMergeGhosts(nil, result)
         addDividerMergeGhosts(nil, result)
+        addMultiplierMergeGhosts(nil, result)
     end
     local surface = Node()
     surface.position = Vec2(0, BOARD_CENTER_Y)
@@ -957,16 +1275,16 @@ function renderPlaying(self, result)
     if not session then
         return
     end
-    local modeName = session.mode == "endless" and "无尽模式" or session.preset.name .. "难度"
+    local modeName = session.mode == "tutorial" and activeTutorial and (("教学 " .. integerText(nil, activeTutorial.id)) .. " · ") .. activeTutorial.title or (session.mode == "endless" and "无尽模式" or session.preset.name .. "难度")
     addText(
         nil,
         screenLayer,
         modeName,
-        25,
+        session.mode == "tutorial" and 24 or 26,
         -320,
         540,
         COLORS.ink,
-        270,
+        310,
         "Left"
     )
     addButton(
@@ -1014,7 +1332,7 @@ function renderPlaying(self, result)
             nil,
             screenLayer,
             "本局用时 " .. formatTime(nil, gameTimer.milliseconds),
-            20,
+            22,
             -320,
             425,
             COLORS.muted,
@@ -1022,16 +1340,31 @@ function renderPlaying(self, result)
             "Left"
         )
     end
+    if session.scoreMultiplierMovesRemaining > 0 then
+        addText(
+            nil,
+            screenLayer,
+            ("饼干加成 ×2 · 剩余 " .. integerText(nil, session.scoreMultiplierMovesRemaining)) .. " 步",
+            22,
+            -320,
+            425,
+            COLORS.cookie,
+            640,
+            "Left"
+        )
+    end
     renderBoard(nil, result)
-    addText(
-        nil,
-        screenLayer,
-        "在棋盘上滑动 · 键盘方向键 / WASD",
-        20,
-        0,
-        -455,
-        COLORS.muted
-    )
+    if session.mode ~= "tutorial" then
+        addText(
+            nil,
+            screenLayer,
+            "在棋盘上滑动 · 键盘方向键 / WASD",
+            22,
+            0,
+            -455,
+            COLORS.muted
+        )
+    end
 end
 function renderPause(self)
     if not session then
@@ -1048,7 +1381,7 @@ function renderPause(self)
     addText(
         nil,
         screenLayer,
-        ((session.mode == "endless" and "无尽模式" or session.preset.name) .. " · 分数 ") .. integerText(nil, session.score),
+        ((session.mode == "tutorial" and activeTutorial and activeTutorial.title or (session.mode == "endless" and "无尽模式" or session.preset.name)) .. " · 分数 ") .. integerText(nil, session.score),
         24,
         0,
         285,
@@ -1099,6 +1432,9 @@ function recordOutcome(self)
         return
     end
     recordedOutcome = true
+    if session.mode == "tutorial" then
+        return
+    end
     local time = session.timed and gameTimer and gameTimer.milliseconds or nil
     if session.mode == "endless" then
         saves:recordEndless(
@@ -1114,6 +1450,102 @@ function renderOutcome(self, victory)
         return
     end
     recordOutcome(nil)
+    if session.mode == "tutorial" and activeTutorial then
+        addText(
+            nil,
+            screenLayer,
+            victory and "教学完成！" or "再试一次",
+            58,
+            0,
+            390,
+            victory and Color(4282624389) or COLORS.danger
+        )
+        local panel = addPanel(
+            nil,
+            screenLayer,
+            580,
+            300,
+            0,
+            145
+        )
+        addText(
+            nil,
+            panel,
+            (integerText(nil, activeTutorial.id) .. ". ") .. activeTutorial.title,
+            30,
+            0,
+            90,
+            COLORS.primary
+        )
+        addText(
+            nil,
+            panel,
+            activeTutorial.objective,
+            21,
+            0,
+            35,
+            COLORS.ink,
+            530
+        )
+        addText(
+            nil,
+            panel,
+            (("完成步数 " .. integerText(nil, session.moveCount)) .. " · 分数 ") .. integerText(nil, session.score),
+            22,
+            0,
+            -35,
+            COLORS.muted
+        )
+        addText(
+            nil,
+            panel,
+            activeTutorial.shortDescription,
+            21,
+            0,
+            -88,
+            COLORS.muted,
+            530
+        )
+        local nextLevel = TUTORIAL_LEVELS[activeTutorial.id + 1]
+        if victory and nextLevel then
+            addButton(
+                nil,
+                screenLayer,
+                "下一教学",
+                0,
+                -100,
+                function() return startTutorial(nil, nextLevel) end
+            )
+        else
+            addButton(
+                nil,
+                screenLayer,
+                "重新挑战",
+                0,
+                -100,
+                function() return startTutorial(nil, activeTutorial) end
+            )
+        end
+        addButton(
+            nil,
+            screenLayer,
+            "教学列表",
+            0,
+            -215,
+            function() return go(nil, "TUTORIAL_SELECT") end,
+            {color = COLORS.secondary}
+        )
+        addButton(
+            nil,
+            screenLayer,
+            "返回主菜单",
+            0,
+            -330,
+            function() return go(nil, "MAIN_MENU") end,
+            {color = COLORS.secondary}
+        )
+        return
+    end
     addText(
         nil,
         screenLayer,
@@ -1188,14 +1620,19 @@ function renderOutcome(self, victory)
         {color = COLORS.secondary}
     )
 end
-function renderScreen(self, result)
-    clearScreen(nil)
+function renderScreen(self, result, preserveBarrage)
+    if preserveBarrage == nil then
+        preserveBarrage = false
+    end
+    clearScreen(nil, preserveBarrage)
     if screens.current == "MAIN_MENU" then
         renderMainMenu(nil)
     elseif screens.current == "MODE_SELECT" then
         renderModeSelect(nil)
     elseif screens.current == "DIFFICULTY_SELECT" then
         renderDifficultySelect(nil)
+    elseif screens.current == "TUTORIAL_SELECT" then
+        renderTutorialSelect(nil)
     elseif screens.current == "TIMER_SELECT" then
         renderTimerSelect(nil)
     elseif screens.current == "RULES" then
@@ -1213,6 +1650,7 @@ function renderScreen(self, result)
     end
 end
 function startGame(self, timed)
+    activeTutorial = nil
     session = __TS__New(
         GameSession,
         pendingPreset,
@@ -1227,6 +1665,26 @@ function startGame(self, timed)
     inputLocked = false
     screens:go("PLAYING")
     renderScreen(nil)
+end
+function startTutorial(self, level)
+    activeTutorial = level
+    pendingMode = "tutorial"
+    pendingPreset = ENDLESS_PRESET
+    session = __TS__New(
+        GameSession,
+        ENDLESS_PRESET,
+        doraRandom,
+        nil,
+        createTutorialBoard(nil, level),
+        {mode = "tutorial", timed = false, generationRules = level.generationRules, tutorialGoal = level.goal}
+    )
+    gameTimer = __TS__New(GameTimer, false)
+    gameTimer:start()
+    recordedOutcome = false
+    inputLocked = false
+    screens:go("PLAYING")
+    renderScreen(nil)
+    playTutorialBarrage(nil, level.barrageMessages)
 end
 function pauseGame(self)
     if session and not inputLocked then
@@ -1248,7 +1706,7 @@ function resumeGame(self)
 end
 function undoMove(self)
     if session and not inputLocked and screens.current == "PLAYING" and session:undo() then
-        renderScreen(nil)
+        renderScreen(nil, nil, session.mode == "tutorial")
     end
 end
 function finishMove(self)
@@ -1270,7 +1728,7 @@ function finishMove(self)
         audio:playGameOver()
         go(nil, "GAME_OVER")
     else
-        renderScreen(nil)
+        renderScreen(nil, nil, session.mode == "tutorial")
     end
 end
 function attemptMove(self, direction)
@@ -1287,7 +1745,7 @@ function attemptMove(self, direction)
     end
     root.keyboardEnabled = false
     audio:playMove(result)
-    renderScreen(nil, result)
+    renderScreen(nil, result, session.mode == "tutorial")
     root:once(function()
         sleep(ANIMATION_TIME + 0.04)
         if (session and session.runStatus) == "playing" and #result.spawnEvents > 0 then
@@ -1314,6 +1772,9 @@ COLORS = {
     danger = Color(4293164166),
     divider = Color(4285945558),
     dividerInner = Color(4290621168),
+    multiplier = Color(4293235781),
+    root = Color(4282231203),
+    cookie = Color(4290345030),
     white = Color(4294967295)
 }
 Director.clearColor = Color(4294310398)
@@ -1340,12 +1801,15 @@ boardLayer = Node()
 boardLayer:addTo(root)
 animationLayer = Node()
 animationLayer:addTo(root)
+barrageLayer = Node()
+barrageLayer:addTo(root, 200)
 screens = __TS__New(ScreenStateMachine)
 rulesReturnState = "MAIN_MENU"
 pendingMode = "difficulty"
 pendingPreset = DIFFICULTY_PRESETS[2]
 inputLocked = false
 recordedOutcome = false
+barrageGeneration = 0
 root:onKeyDown(function(key)
     if key == "Left" or key == "A" then
         attemptMove(nil, "left")

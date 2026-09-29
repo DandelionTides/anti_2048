@@ -21,11 +21,13 @@ test("ScoreManager awards original split value and never awards merges", () => {
   assert.equal(mergeSession.score, 0);
 });
 
-test("endless mode spawns NUMBER every move and Divider before NUMBER every second move", () => {
+test("endless mode spawns exactly one randomly selected tile per effective move", () => {
   const initial = boardFromRows([[64, null, null, null], [null, null, null, null], [null, null, null, null], [null, null, null, null]]);
+  const values = [0.1, 0, 0, 0.9, 0, 0, 0];
+  const random = () => values.shift() ?? 0;
   const session = new GameSession(
-    { ...ENDLESS_PRESET, initialTileCount: 0, allowedDivisors: [4], endlessNumberStages: [{ fromMove: 1, values: [2] }] },
-    () => 0,
+    { ...ENDLESS_PRESET, initialTileCount: 0, allowedDivisors: [4], operatorPool: ["DIVIDER"], endlessNumberStages: [{ fromMove: 1, values: [2] }] },
+    random,
     undefined,
     initial,
     { mode: "endless" },
@@ -34,13 +36,11 @@ test("endless mode spawns NUMBER every move and Divider before NUMBER every seco
   assert.equal(first.spawnEvents.length, 1);
   assert.equal(first.spawnEvents[0].tile.kind, "NUMBER");
   const second = session.move("left");
-  assert.equal(second.spawnEvents.length, 2);
+  assert.equal(second.spawnEvents.length, 1);
   assert.equal(second.spawnEvents[0].tile.kind, "DIVIDER");
-  assert.equal(second.spawnEvents[1].tile.kind, "NUMBER");
-  assert.equal(second.spawnEvents[1].tile.kind === "NUMBER" && second.spawnEvents[1].tile.value, 2);
 });
 
-test("with one post-move empty endless mode prioritizes Divider and skips NUMBER", () => {
+test("with one post-move empty endless mode still creates at most one tile", () => {
   const initial = boardFromRows([[2, 2], [8, 16]]);
   const session = new GameSession(
     { ...ENDLESS_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0, allowedDivisors: [2], endlessNumberStages: [{ fromMove: 1, values: [1] }] },
@@ -52,7 +52,7 @@ test("with one post-move empty endless mode prioritizes Divider and skips NUMBER
   session.moveCount = 1;
   const result = session.move("left");
   assert.equal(result.spawnEvents.length, 1);
-  assert.equal(result.spawnEvents[0].tile.kind, "DIVIDER");
+  assert.equal(result.spawnEvents[0].tile.kind, "NUMBER");
   assert.equal(result.state.cells.filter(cell => cell.kind === "EMPTY").length, 0);
 });
 
@@ -133,7 +133,9 @@ test("all three difficulty presets expose required independent configuration", (
     assert.ok(preset.initialTileCount > 0);
     assert.ok(preset.initialValues.length > 0);
     assert.ok(preset.allowedDivisors.length > 0);
-    assert.equal(preset.dividerSpawnInterval, 2);
+    assert.ok(preset.allowedMultipliers.length > 0);
+    assert.ok(preset.operatorPool.includes("MULTIPLIER"));
+    assert.equal(preset.operatorSpawnInterval, 2);
     assert.equal(typeof preset.defaultTimed, "boolean");
     assert.equal(preset.targetRule, "CLEAR_ALL_NUMBERS");
   }
@@ -155,7 +157,7 @@ test("difficulty initialization uses the configured larger exact totals", () => 
 });
 
 test("endless number stages increase both maximum value and top-value probability", () => {
-  const moves = [1, 20, 50, 100, 160, 240, 360];
+  const moves = [1, 30, 70, 120, 190, 280, 400];
   let previousMaximum = 0;
   let previousTopChance = 0;
   moves.forEach(move => {
@@ -167,7 +169,7 @@ test("endless number stages increase both maximum value and top-value probabilit
     previousMaximum = maximum;
     previousTopChance = topChance;
   });
-  assert.deepEqual(endlessNumberPoolForMove(ENDLESS_PRESET, 49), ENDLESS_PRESET.endlessNumberStages[1].values);
+  assert.deepEqual(endlessNumberPoolForMove(ENDLESS_PRESET, 69), ENDLESS_PRESET.endlessNumberStages[1].values);
 });
 
 test("undo history respects its configured finite limit", () => {

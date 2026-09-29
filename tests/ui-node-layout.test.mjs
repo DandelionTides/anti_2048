@@ -54,3 +54,39 @@ test("volume slider maps Dora local content coordinates from 20 through 500", ()
   assert.equal(volumeAt(260), 0.5);
   assert.equal(volumeAt(500), 1);
 });
+
+test("all seven tutorial buttons and descriptions stay inside the portrait canvas", () => {
+  const items = Array.from({ length: 7 }, (_, index) => ({
+    buttonY: 360 - index * 125,
+    descriptionY: 360 - index * 125 - 50,
+  }));
+  for (const item of items) {
+    assert.ok(item.buttonY + 37 <= 640);
+    assert.ok(item.buttonY - 37 >= -640);
+    assert.ok(item.descriptionY >= -640);
+  }
+  assert.match(tsSource, /go\("TUTORIAL_SELECT"\)/);
+  assert.match(luaSource, /screens\.current == "TUTORIAL_SELECT"/);
+});
+
+test("tutorial guidance uses one fixed large fading card and no extra tutorial HUD", () => {
+  assert.match(tsSource, /addText\(card, text, 30/);
+  assert.match(tsSource, /card\.position = Vec2\(0, 350\)/);
+  assert.match(tsSource, /const fadeIn = 0\.45/);
+  assert.match(tsSource, /const hold = 4\.0/);
+  assert.match(tsSource, /const fadeOut = 0\.75/);
+  assert.match(tsSource, /sleep\(5\.35\)/);
+  assert.match(tsSource, /Opacity\(fadeIn, 0, 1, Ease\.OutQuad\)/);
+  assert.match(tsSource, /Delay\(hold\)/);
+  assert.match(tsSource, /Opacity\(fadeOut, 1, 0, Ease\.OutQuad\)/);
+  assert.doesNotMatch(tsSource, /Move\(duration, start, end, Ease\.Linear\)/);
+  assert.match(tsSource, /playTutorialBarrage\(level\.barrageMessages\)/);
+  assert.doesNotMatch(tsSource, /"重播提示"/);
+  assert.doesNotMatch(tsSource, /`目标：\$\{activeTutorial\.objective\}`/);
+  assert.doesNotMatch(tsSource, /教学进度/);
+  assert.doesNotMatch(tsSource, /tutorialMoveMessage/);
+  assert.match(tsSource, /level\.shortDescription, 20/);
+  assert.doesNotMatch(tsSource, /activeTutorial\.lesson/);
+  assert.match(luaSource, /card\.position = Vec2\(0, 350\)/);
+  assert.match(luaSource, /Opacity\(fadeIn, 0, 1, Ease\.OutQuad\)/);
+});

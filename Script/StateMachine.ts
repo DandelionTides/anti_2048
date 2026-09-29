@@ -2,6 +2,7 @@ export type ScreenState =
   | "MAIN_MENU"
   | "MODE_SELECT"
   | "DIFFICULTY_SELECT"
+  | "TUTORIAL_SELECT"
   | "TIMER_SELECT"
   | "PLAYING"
   | "PAUSED"
@@ -20,4 +21,3 @@ export class ScreenStateMachine {
     this.current = next;
   }
 }
-

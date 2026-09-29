@@ -1,6 +1,6 @@
 {
   "name": "anti-2048-dora-ssr",
-  "version": "0.8.0",
+  "version": "0.9.3",
   "type": "module",
   "private": true,
   "description": "Dora SSR LoveNode + TypeScript prototype for Reverse 2048",

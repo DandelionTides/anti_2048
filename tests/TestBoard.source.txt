@@ -1,7 +1,7 @@
 import type { BoardState } from "../Script/Core.ts";
 import { createEmptyBoard, getCell } from "../Script/Core.ts";
 
-export type TestCell = number | `÷${number}` | null;
+export type TestCell = number | `÷${number}` | `×${number}` | "√" | "饼干" | null;
 
 function validateDivisor(value: number): void {
   if (!Number.isInteger(value) || value < 2 || (value & (value - 1)) !== 0) {
@@ -20,10 +20,18 @@ export function boardFromRows(rows: TestCell[][]): BoardState {
       const index = row * size + col;
       if (typeof value === "number") {
         state.cells[index] = { kind: "NUMBER", id: state.nextTileId++, value, createdBySplitThisMove: false };
-      } else {
+      } else if (value.startsWith("÷")) {
         const divisor = Number(value.slice(1));
         validateDivisor(divisor);
         state.cells[index] = { kind: "DIVIDER", id: state.nextTileId++, divisor };
+      } else if (value.startsWith("×")) {
+        const factor = Number(value.slice(1));
+        validateDivisor(factor);
+        state.cells[index] = { kind: "MULTIPLIER", id: state.nextTileId++, factor };
+      } else if (value === "√") {
+        state.cells[index] = { kind: "ROOT", id: state.nextTileId++ };
+      } else {
+        state.cells[index] = { kind: "COOKIE", id: state.nextTileId++ };
       }
     }
   }
@@ -36,7 +44,12 @@ export function boardToRows(state: BoardState): TestCell[][] {
     const values: TestCell[] = [];
     for (let col = 0; col < state.size; col += 1) {
       const cell = getCell(state, { row, col });
-      values.push(cell.kind === "EMPTY" ? null : cell.kind === "NUMBER" ? cell.value : `÷${cell.divisor}`);
+      if (cell.kind === "EMPTY") values.push(null);
+      else if (cell.kind === "NUMBER") values.push(cell.value);
+      else if (cell.kind === "DIVIDER") values.push(`÷${cell.divisor}`);
+      else if (cell.kind === "MULTIPLIER") values.push(`×${cell.factor}`);
+      else if (cell.kind === "ROOT") values.push("√");
+      else values.push("饼干");
     }
     rows.push(values);
   }

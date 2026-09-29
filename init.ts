@@ -1,6 +1,6 @@
 import {
-  App, ClipNode, Color, Content, Director, DrawNode, Ease, Label, LoveNode, Move,
-  KeyName, Node, Opacity, Scale, Spawn, Size, TextAlign, Vec2, View, sleep,
+  App, ClipNode, Color, Content, Delay, Director, DrawNode, Ease, Label, LoveNode, Move,
+  KeyName, Node, Opacity, Scale, Sequence, Spawn, Size, TextAlign, Vec2, View, sleep,
 } from "Dora";
 import type { Cell, Direction, MoveResult, NumberTile, Position } from "Script/Core";
 import { GameSession } from "Script/Core";
@@ -16,6 +16,8 @@ import { doraRandom } from "Script/Random";
 import { AudioManager } from "Script/AudioManager";
 import { integerText } from "Script/Display";
 import { DESIGN_HEIGHT, DESIGN_WIDTH, fitPortraitCanvas } from "Script/Layout";
+import type { TutorialLevel } from "Script/Tutorial";
+import { TUTORIAL_LEVELS, createTutorialBoard } from "Script/Tutorial";
 
 const BOARD_WIDTH = 640;
 const BOARD_CENTER_Y = -55;
@@ -29,7 +31,8 @@ const COLORS = {
   ink: Color(0xff243047), muted: Color(0xff6f7c91), panel: Color(0xfff5f7fb),
   board: Color(0xffdfe6f1), slot: Color(0xffedf1f7), primary: Color(0xff4f8fe8),
   secondary: Color(0xff90a7c7), danger: Color(0xffe47c86), divider: Color(0xff7656d6),
-  dividerInner: Color(0xffbdaef0), white: Color(0xffffffff),
+  dividerInner: Color(0xffbdaef0), multiplier: Color(0xffe59445), root: Color(0xff3da9a3),
+  cookie: Color(0xffb97846), white: Color(0xffffffff),
 };
 Director.clearColor = Color(0xfff5f9fe);
 
@@ -61,6 +64,8 @@ const boardLayer = Node();
 boardLayer.addTo(root);
 const animationLayer = Node();
 animationLayer.addTo(root);
+const barrageLayer = Node();
+barrageLayer.addTo(root, 200);
 
 const screens = new ScreenStateMachine();
 let rulesReturnState: ScreenState = "MAIN_MENU";
@@ -73,6 +78,8 @@ let swipeStart: ReturnType<typeof Vec2> | undefined;
 let gestureSurface: ReturnType<typeof Node> | undefined;
 let timerLabel: ReturnType<typeof Label> | undefined;
 let recordedOutcome = false;
+let activeTutorial: TutorialLevel | undefined;
+let barrageGeneration = 0;
 
 function rectangle(width: number, height: number, color: ReturnType<typeof Color>, borderColor?: ReturnType<typeof Color>): ReturnType<typeof DrawNode> {
   const draw = DrawNode();
@@ -139,12 +146,53 @@ function addPanel(parent: ReturnType<typeof Node>, width: number, height: number
   return panel;
 }
 
-function clearScreen(): void {
+function clearScreen(preserveBarrage = false): void {
   screenLayer.removeAllChildren();
   boardLayer.removeAllChildren();
   animationLayer.removeAllChildren();
+  if (!preserveBarrage) {
+    barrageLayer.removeAllChildren();
+    barrageGeneration += 1;
+  }
   gestureSurface = undefined;
   timerLabel = undefined;
+}
+
+function launchBarrage(text: string, generation: number): void {
+  if (generation !== barrageGeneration) return;
+  const fadeIn = 0.45;
+  const hold = 4.0;
+  const fadeOut = 0.75;
+  const duration = fadeIn + hold + fadeOut;
+  const card = Node();
+  card.position = Vec2(0, 350);
+  card.opacity = 0;
+  rectangle(620, 88, COLORS.ink, COLORS.white).addTo(card);
+  addText(card, text, 30, 0, 0, COLORS.white, 590);
+  card.perform(Sequence(
+    Opacity(fadeIn, 0, 1, Ease.OutQuad),
+    Delay(hold),
+    Opacity(fadeOut, 1, 0, Ease.OutQuad),
+  ));
+  card.addTo(barrageLayer);
+  root.once(() => {
+    sleep(duration);
+    if (generation === barrageGeneration) card.removeFromParent();
+  });
+}
+
+function playTutorialBarrage(messages: string[]): void {
+  barrageLayer.removeAllChildren();
+  barrageGeneration += 1;
+  const generation = barrageGeneration;
+  root.once(() => {
+    sleep(0.12);
+    for (let index = 0; index < messages.length; index += 1) {
+      if (generation !== barrageGeneration) return;
+      launchBarrage(messages[index], generation);
+      sleep(5.35);
+    }
+  });
 }
 
 function go(state: ScreenState): void { screens.go(state); renderScreen(); }
@@ -157,10 +205,11 @@ function renderHeader(title: string, back?: () => void): void {
 function renderMainMenu(): void {
   addText(screenLayer, "反 2048", 72, 0, 330);
   addText(screenLayer, "把数字拆回空白", 28, 0, 252, COLORS.muted);
-  addButton(screenLayer, "开始游戏", 0, 65, () => go("MODE_SELECT"));
-  addButton(screenLayer, "规则", 0, -55, () => { rulesReturnState = "MAIN_MENU"; go("RULES"); }, { color: COLORS.secondary });
+  addButton(screenLayer, "开始游戏", 0, 105, () => go("MODE_SELECT"));
+  addButton(screenLayer, "教学关卡", 0, -5, () => go("TUTORIAL_SELECT"), { color: COLORS.root });
+  addButton(screenLayer, "规则", 0, -115, () => { rulesReturnState = "MAIN_MENU"; go("RULES"); }, { color: COLORS.secondary });
   addButton(screenLayer, "设置 ⚙", 255, 525, () => go("SETTINGS"), { width: 170, height: 64, color: COLORS.secondary, fontSize: 23 });
-  addText(screenLayer, "每一步，只生成规则允许的方块", 21, 0, -430, COLORS.muted);
+  addText(screenLayer, "每一步，只生成规则允许的方块", 23, 0, -430, COLORS.muted);
 }
 
 function renderModeSelect(): void {
@@ -168,7 +217,19 @@ function renderModeSelect(): void {
   addButton(screenLayer, "难度模式", 0, 145, () => go("DIFFICULTY_SELECT"));
   addText(screenLayer, "拆完所有 NUMBER 即通关", 22, 0, 82, COLORS.muted);
   addButton(screenLayer, "无尽模式", 0, -85, () => { pendingMode = "endless"; pendingPreset = ENDLESS_PRESET; go("TIMER_SELECT"); }, { color: COLORS.divider });
-  addText(screenLayer, "每步补充数字 · 数值随步数提升 · 每 2 步生成 Divider", 20, 0, -148, COLORS.muted, 650);
+  addText(screenLayer, "每步随机补 1 个数字或符号 · 大数字概率缓慢提升", 22, 0, -148, COLORS.muted, 650);
+}
+
+function renderTutorialSelect(): void {
+  renderHeader("教学关卡", () => go("MAIN_MENU"));
+  for (let index = 0; index < TUTORIAL_LEVELS.length; index += 1) {
+    const level = TUTORIAL_LEVELS[index];
+    const y = 360 - index * 125;
+    addButton(screenLayer, `${integerText(level.id)}. ${level.title}`, 0, y, () => startTutorial(level), {
+      width: 590, height: 74, color: index < 5 ? COLORS.primary : index === 5 ? COLORS.cookie : COLORS.divider, fontSize: 26,
+    });
+    addText(screenLayer, level.shortDescription, 20, 0, y - 50, COLORS.muted, 640);
+  }
 }
 
 function renderDifficultySelect(): void {
@@ -177,7 +238,7 @@ function renderDifficultySelect(): void {
     const y = 240 - index * 190;
     addButton(screenLayer, preset.name, 0, y, () => { pendingMode = "difficulty"; pendingPreset = preset; go("TIMER_SELECT"); }, { color: index === 0 ? Color(0xff56b99a) : index === 1 ? COLORS.primary : Color(0xffe28a61) });
     const initialTotal = preset.initialValues.reduce((sum, value) => sum + value, 0);
-    addText(screenLayer, `初始 ${integerText(preset.initialTileCount)} 块 · 总和 ${integerText(initialTotal)} · 数字 ${integerText(Math.min(...preset.initialValues))}–${integerText(Math.max(...preset.initialValues))}`, 18, 0, y - 62, COLORS.muted, 650);
+    addText(screenLayer, `初始 ${integerText(preset.initialTileCount)} 块 · 总和 ${integerText(initialTotal)} · 数字 ${integerText(Math.min(...preset.initialValues))}–${integerText(Math.max(...preset.initialValues))}`, 20, 0, y - 62, COLORS.muted, 650);
   });
 }
 
@@ -200,9 +261,9 @@ function renderRules(): void {
   let y = 405;
   RULE_SECTIONS.forEach(section => {
     addText(content, section.title, 24, -310, y, COLORS.primary, 620, TextAlign.Left);
-    const body = addText(content, section.body, 19, -310, y - 30, COLORS.ink, 620, TextAlign.Left);
+    const body = addText(content, section.body, 21, -310, y - 30, COLORS.ink, 620, TextAlign.Left);
     if (body) body.anchor = Vec2(0, 1);
-    y -= 48 + section.lines * 24;
+    y -= 52 + section.lines * 27;
   });
   const maxScroll = Math.max(0, -410 - y);
   let lastY = 0;
@@ -223,7 +284,7 @@ function renderRules(): void {
   });
   viewport.addTo(screenLayer);
   dragSurface.addTo(screenLayer, 1);
-  if (maxScroll > 0) addText(screenLayer, "上下拖动查看完整规则", 18, 0, -535, COLORS.muted);
+  if (maxScroll > 0) addText(screenLayer, "上下拖动查看完整规则", 21, 0, -535, COLORS.muted);
 }
 
 function renderSettings(): void {
@@ -281,10 +342,22 @@ function positionToPoint(position: Position, size: number): ReturnType<typeof Ve
 
 function tileColor(cell: Cell): ReturnType<typeof Color> {
   if (cell.kind === "DIVIDER") return COLORS.divider;
+  if (cell.kind === "MULTIPLIER") return COLORS.multiplier;
+  if (cell.kind === "ROOT") return COLORS.root;
+  if (cell.kind === "COOKIE") return COLORS.cookie;
   if (cell.kind === "EMPTY") return COLORS.slot;
   const colors = [0xffe8dff5, 0xffd7ecff, 0xffd8f3e5, 0xffffefc5, 0xffffdccb, 0xffffcfd8, 0xffcde7e8, 0xffd7ddff];
   const level = Math.min(colors.length - 1, Math.floor(Math.log(cell.value) / Math.log(2)));
   return Color(colors[Math.max(0, level)]);
+}
+
+function tileText(cell: Cell): string {
+  if (cell.kind === "NUMBER") return integerText(cell.value);
+  if (cell.kind === "DIVIDER") return `÷${integerText(cell.divisor)}`;
+  if (cell.kind === "MULTIPLIER") return `×${integerText(cell.factor)}`;
+  if (cell.kind === "ROOT") return "√";
+  if (cell.kind === "COOKIE") return "饼干";
+  return "";
 }
 
 function createTile(cell: Cell, position: Position, result?: MoveResult): ReturnType<typeof Node> | undefined {
@@ -293,24 +366,26 @@ function createTile(cell: Cell, position: Position, result?: MoveResult): Return
   const tile = Node();
   const finalPoint = positionToPoint(position, session.state.size);
   tile.position = finalPoint;
-  rectangle(cellSize, cellSize, tileColor(cell), cell.kind === "DIVIDER" ? COLORS.dividerInner : undefined).addTo(tile);
+  const operator = cell.kind !== "NUMBER";
+  rectangle(cellSize, cellSize, tileColor(cell), operator ? COLORS.white : undefined).addTo(tile);
   if (cell.kind === "DIVIDER") rectangle(cellSize - 20, cellSize - 20, COLORS.dividerInner, COLORS.white).addTo(tile);
-  addText(tile, cell.kind === "NUMBER" ? integerText(cell.value) : `÷${integerText(cell.divisor)}`, cell.kind === "DIVIDER" ? 38 : 46, 0, 0, cell.kind === "DIVIDER" ? COLORS.white : COLORS.ink);
+  addText(tile, tileText(cell), cell.kind === "COOKIE" ? 27 : operator ? 38 : 46, 0, 0, operator ? COLORS.white : COLORS.ink);
   if (result) {
     const movement = result.moveEvents.find(event => event.tileId === cell.id);
     const createdBySplit = result.splitEvents.find(event => event.createdTileId === cell.id);
     const sourceSplit = result.splitEvents.find(event => event.sourceTileId === cell.id && event.resultValue > 0);
     const merge = result.mergeEvents.find(event => event.resultTileId === cell.id);
     const dividerMerge = result.dividerMergeEvents.find(event => event.resultTileId === cell.id);
+    const multiplierMerge = result.multiplierMergeEvents.find(event => event.resultTileId === cell.id);
     const spawned = result.spawnEvents.some(event => event.tileId === cell.id);
     const start = movement ? positionToPoint(movement.from, session.state.size) : createdBySplit ? positionToPoint(createdBySplit.source, session.state.size) : finalPoint;
     if (movement || createdBySplit) {
       tile.position = start;
-      if (merge || dividerMerge || createdBySplit || sourceSplit) {
+      if (merge || dividerMerge || multiplierMerge || createdBySplit || sourceSplit) {
         tile.scaleX = 0.72; tile.scaleY = 0.72;
         tile.perform(Spawn(Move(ANIMATION_TIME, start, finalPoint, Ease.OutQuad), Scale(ANIMATION_TIME, 0.72, 1, Ease.OutBack)));
       } else tile.perform(Move(ANIMATION_TIME, start, finalPoint, Ease.OutQuad));
-    } else if (merge || dividerMerge || spawned) {
+    } else if (merge || dividerMerge || multiplierMerge || spawned) {
       tile.scaleX = 0.55; tile.scaleY = 0.55; tile.opacity = spawned ? 0 : 1;
       tile.perform(Spawn(Scale(ANIMATION_TIME, 0.55, 1, Ease.OutBack), Opacity(ANIMATION_TIME, tile.opacity, 1)));
     }
@@ -361,11 +436,52 @@ function addDividerGhosts(result: MoveResult): void {
     rectangle(cellSize, cellSize, COLORS.divider, COLORS.dividerInner).addTo(ghost);
     rectangle(cellSize - 20, cellSize - 20, COLORS.dividerInner, COLORS.white).addTo(ghost);
     addText(ghost, `÷${integerText(event.divisor)}`, 38, 0, 0, COLORS.white);
-    addText(ghost, `${integerText(event.originalValue)}→${integerText(event.resultValue)}`, 18, 0, -cellSize * 0.3, COLORS.white);
+    addText(ghost, `${integerText(event.originalValue)}→${integerText(event.resultValue)}`, 22, 0, -cellSize * 0.3, COLORS.white);
     ghost.perform(Spawn(
       Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad),
       Opacity(ANIMATION_TIME, 1, 0),
     ));
+    ghost.addTo(animationLayer);
+  });
+}
+
+function addMultiplierGhosts(result: MoveResult): void {
+  if (!session) return;
+  const { cellSize } = boardMetrics(session.state.size);
+  result.multiplierEvents.forEach(event => {
+    const ghost = Node();
+    ghost.position = positionToPoint(event.position, session!.state.size);
+    rectangle(cellSize, cellSize, COLORS.multiplier, COLORS.white).addTo(ghost);
+    addText(ghost, `×${integerText(event.factor)}`, 38, 0, 0, COLORS.white);
+    addText(ghost, `${integerText(event.originalValue)}→${integerText(event.resultValue)}`, 22, 0, -cellSize * 0.3, COLORS.white);
+    ghost.perform(Spawn(Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad), Opacity(ANIMATION_TIME, 1, 0)));
+    ghost.addTo(animationLayer);
+  });
+}
+
+function addRootGhosts(result: MoveResult): void {
+  if (!session) return;
+  const { cellSize } = boardMetrics(session.state.size);
+  result.rootEvents.forEach(event => {
+    const ghost = Node();
+    ghost.position = positionToPoint(event.position, session!.state.size);
+    rectangle(cellSize, cellSize, COLORS.root, COLORS.white).addTo(ghost);
+    addText(ghost, "√", 42, 0, 0, COLORS.white);
+    addText(ghost, `${integerText(event.originalValue)}→${integerText(event.resultValue)}`, 22, 0, -cellSize * 0.3, COLORS.white);
+    ghost.perform(Spawn(Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad), Opacity(ANIMATION_TIME, 1, 0)));
+    ghost.addTo(animationLayer);
+  });
+}
+
+function addCookieGhosts(result: MoveResult): void {
+  if (!session) return;
+  const { cellSize } = boardMetrics(session.state.size);
+  result.cookieEvents.forEach(event => {
+    const ghost = Node();
+    ghost.position = positionToPoint(event.position, session!.state.size);
+    rectangle(cellSize, cellSize, COLORS.cookie, COLORS.white).addTo(ghost);
+    addText(ghost, event.triggered ? "×2!" : "饼干", event.triggered ? 34 : 27, 0, 0, COLORS.white);
+    ghost.perform(Spawn(Scale(ANIMATION_TIME, 1, 0.3, Ease.OutQuad), Opacity(ANIMATION_TIME, 1, 0)));
     ghost.addTo(animationLayer);
   });
 }
@@ -383,6 +499,24 @@ function addDividerMergeGhosts(result: MoveResult): void {
       rectangle(cellSize, cellSize, COLORS.divider, COLORS.dividerInner).addTo(ghost);
       rectangle(cellSize - 20, cellSize - 20, COLORS.dividerInner, COLORS.white).addTo(ghost);
       addText(ghost, `÷${integerText(event.resultDivisor / 2)}`, 38, 0, 0, COLORS.white);
+      ghost.perform(Spawn(Move(ANIMATION_TIME, start, destination, Ease.OutQuad), Opacity(ANIMATION_TIME, 0.9, 0)));
+      ghost.addTo(animationLayer);
+    });
+  });
+}
+
+function addMultiplierMergeGhosts(result: MoveResult): void {
+  if (!session) return;
+  const { cellSize } = boardMetrics(session.state.size);
+  result.multiplierMergeEvents.forEach(event => {
+    const finalMove = result.moveEvents.find(move => move.tileId === event.resultTileId);
+    const destination = positionToPoint(finalMove?.to ?? event.destination, session!.state.size);
+    event.sources.forEach(source => {
+      const ghost = Node();
+      const start = positionToPoint(source, session!.state.size);
+      ghost.position = start;
+      rectangle(cellSize, cellSize, COLORS.multiplier, COLORS.white).addTo(ghost);
+      addText(ghost, `×${integerText(event.resultFactor / 2)}`, 38, 0, 0, COLORS.white);
       ghost.perform(Spawn(Move(ANIMATION_TIME, start, destination, Ease.OutQuad), Opacity(ANIMATION_TIME, 0.9, 0)));
       ghost.addTo(animationLayer);
     });
@@ -410,8 +544,12 @@ function renderBoard(result?: MoveResult): void {
   if (result) {
     addSplitOneGhosts(result);
     addDividerGhosts(result);
+    addMultiplierGhosts(result);
+    addRootGhosts(result);
+    addCookieGhosts(result);
     addMergeGhosts(result);
     addDividerMergeGhosts(result);
+    addMultiplierMergeGhosts(result);
   }
   const surface = Node();
   surface.position = Vec2(0, BOARD_CENTER_Y);
@@ -436,21 +574,26 @@ function renderBoard(result?: MoveResult): void {
 
 function renderPlaying(result?: MoveResult): void {
   if (!session) return;
-  const modeName = session.mode === "endless" ? "无尽模式" : `${session.preset.name}难度`;
-  addText(screenLayer, modeName, 25, -320, 540, COLORS.ink, 270, TextAlign.Left);
+  const modeName = session.mode === "tutorial" && activeTutorial
+    ? `教学 ${integerText(activeTutorial.id)} · ${activeTutorial.title}`
+    : session.mode === "endless" ? "无尽模式" : `${session.preset.name}难度`;
+  addText(screenLayer, modeName, session.mode === "tutorial" ? 24 : 26, -320, 540, COLORS.ink, 310, TextAlign.Left);
   addButton(screenLayer, "撤销", 150, 540, undoMove, { width: 130, height: 60, color: COLORS.secondary, fontSize: 22 });
   addButton(screenLayer, "暂停", 285, 540, pauseGame, { width: 120, height: 60, color: COLORS.secondary, fontSize: 22 });
   addText(screenLayer, `分数 ${integerText(session.score)}`, 24, -320, 475, COLORS.primary, 250, TextAlign.Left);
   addText(screenLayer, `移动 ${integerText(session.moveCount)}`, 24, -35, 475, COLORS.ink, 200, TextAlign.Left);
-  if (session.timed && gameTimer) timerLabel = addText(screenLayer, `本局用时 ${formatTime(gameTimer.milliseconds)}`, 20, -320, 425, COLORS.muted, 640, TextAlign.Left);
+  if (session.timed && gameTimer) timerLabel = addText(screenLayer, `本局用时 ${formatTime(gameTimer.milliseconds)}`, 22, -320, 425, COLORS.muted, 640, TextAlign.Left);
+  if (session.scoreMultiplierMovesRemaining > 0) {
+    addText(screenLayer, `饼干加成 ×2 · 剩余 ${integerText(session.scoreMultiplierMovesRemaining)} 步`, 22, -320, 425, COLORS.cookie, 640, TextAlign.Left);
+  }
   renderBoard(result);
-  addText(screenLayer, "在棋盘上滑动 · 键盘方向键 / WASD", 20, 0, -455, COLORS.muted);
+  if (session.mode !== "tutorial") addText(screenLayer, "在棋盘上滑动 · 键盘方向键 / WASD", 22, 0, -455, COLORS.muted);
 }
 
 function renderPause(): void {
   if (!session) return;
   addText(screenLayer, "已暂停", 52, 0, 350);
-  addText(screenLayer, `${session.mode === "endless" ? "无尽模式" : session.preset.name} · 分数 ${integerText(session.score)}`, 24, 0, 285, COLORS.muted);
+  addText(screenLayer, `${session.mode === "tutorial" && activeTutorial ? activeTutorial.title : session.mode === "endless" ? "无尽模式" : session.preset.name} · 分数 ${integerText(session.score)}`, 24, 0, 285, COLORS.muted);
   addButton(screenLayer, "继续", 0, 100, resumeGame);
   addButton(screenLayer, "规则", 0, -20, () => { rulesReturnState = "PAUSED"; go("RULES"); }, { color: COLORS.secondary });
   addButton(screenLayer, "返回主菜单", 0, -140, () => go("MAIN_MENU"), { color: COLORS.danger });
@@ -464,6 +607,7 @@ function highestNumber(): number {
 function recordOutcome(): void {
   if (!session || recordedOutcome) return;
   recordedOutcome = true;
+  if (session.mode === "tutorial") return;
   const time = session.timed && gameTimer ? gameTimer.milliseconds : undefined;
   if (session.mode === "endless") saves.recordEndless(session.score, highestNumber());
   else if (session.runStatus === "victory") saves.recordDifficulty(session.preset, session.score, time);
@@ -472,6 +616,20 @@ function recordOutcome(): void {
 function renderOutcome(victory: boolean): void {
   if (!session) return;
   recordOutcome();
+  if (session.mode === "tutorial" && activeTutorial) {
+    addText(screenLayer, victory ? "教学完成！" : "再试一次", 58, 0, 390, victory ? Color(0xff43a985) : COLORS.danger);
+    const panel = addPanel(screenLayer, 580, 300, 0, 145);
+    addText(panel, `${integerText(activeTutorial.id)}. ${activeTutorial.title}`, 30, 0, 90, COLORS.primary);
+    addText(panel, activeTutorial.objective, 21, 0, 35, COLORS.ink, 530);
+    addText(panel, `完成步数 ${integerText(session.moveCount)} · 分数 ${integerText(session.score)}`, 22, 0, -35, COLORS.muted);
+    addText(panel, activeTutorial.shortDescription, 21, 0, -88, COLORS.muted, 530);
+    const nextLevel = TUTORIAL_LEVELS[activeTutorial.id];
+    if (victory && nextLevel) addButton(screenLayer, "下一教学", 0, -100, () => startTutorial(nextLevel));
+    else addButton(screenLayer, "重新挑战", 0, -100, () => startTutorial(activeTutorial!));
+    addButton(screenLayer, "教学列表", 0, -215, () => go("TUTORIAL_SELECT"), { color: COLORS.secondary });
+    addButton(screenLayer, "返回主菜单", 0, -330, () => go("MAIN_MENU"), { color: COLORS.secondary });
+    return;
+  }
   addText(screenLayer, victory ? "通关！" : session.mode === "endless" ? "无尽结束" : "无法继续", 58, 0, 390, victory ? Color(0xff43a985) : COLORS.danger);
   const panel = addPanel(screenLayer, 560, 320, 0, 125);
   addText(panel, `最终分数  ${integerText(session.score)}`, 30, 0, 95, COLORS.primary);
@@ -482,11 +640,12 @@ function renderOutcome(victory: boolean): void {
   addButton(screenLayer, "返回主菜单", 0, -270, () => go("MAIN_MENU"), { color: COLORS.secondary });
 }
 
-function renderScreen(result?: MoveResult): void {
-  clearScreen();
+function renderScreen(result?: MoveResult, preserveBarrage = false): void {
+  clearScreen(preserveBarrage);
   if (screens.current === "MAIN_MENU") renderMainMenu();
   else if (screens.current === "MODE_SELECT") renderModeSelect();
   else if (screens.current === "DIFFICULTY_SELECT") renderDifficultySelect();
+  else if (screens.current === "TUTORIAL_SELECT") renderTutorialSelect();
   else if (screens.current === "TIMER_SELECT") renderTimerSelect();
   else if (screens.current === "RULES") renderRules();
   else if (screens.current === "SETTINGS") renderSettings();
@@ -497,6 +656,7 @@ function renderScreen(result?: MoveResult): void {
 }
 
 function startGame(timed: boolean): void {
+  activeTutorial = undefined;
   session = new GameSession(pendingPreset, doraRandom, undefined, undefined, { mode: pendingMode, timed });
   gameTimer = new GameTimer(timed);
   gameTimer.start();
@@ -506,9 +666,32 @@ function startGame(timed: boolean): void {
   renderScreen();
 }
 
+function startTutorial(level: TutorialLevel): void {
+  activeTutorial = level;
+  pendingMode = "tutorial";
+  pendingPreset = ENDLESS_PRESET;
+  session = new GameSession(ENDLESS_PRESET, doraRandom, undefined, createTutorialBoard(level), {
+    mode: "tutorial",
+    timed: false,
+    generationRules: level.generationRules,
+    tutorialGoal: level.goal,
+  });
+  gameTimer = new GameTimer(false);
+  gameTimer.start();
+  recordedOutcome = false;
+  inputLocked = false;
+  screens.go("PLAYING");
+  renderScreen();
+  playTutorialBarrage(level.barrageMessages);
+}
+
 function pauseGame(): void { if (session && !inputLocked) { session.pause(); gameTimer?.pause(); go("PAUSED"); } }
 function resumeGame(): void { if (session) { session.resume(); gameTimer?.resume(); go("PLAYING"); } }
-function undoMove(): void { if (session && !inputLocked && screens.current === "PLAYING" && session.undo()) renderScreen(); }
+function undoMove(): void {
+  if (session && !inputLocked && screens.current === "PLAYING" && session.undo()) {
+    renderScreen(undefined, session.mode === "tutorial");
+  }
+}
 
 function finishMove(): void {
   if (!session) return;
@@ -516,7 +699,9 @@ function finishMove(): void {
   root.keyboardEnabled = true;
   if (session.runStatus === "victory") { gameTimer?.stop(); audio.playVictory(); go("VICTORY"); }
   else if (session.runStatus === "defeat") { gameTimer?.stop(); audio.playGameOver(); go("GAME_OVER"); }
-  else renderScreen();
+  else {
+    renderScreen(undefined, session.mode === "tutorial");
+  }
 }
 
 function attemptMove(direction: Direction): void {
@@ -527,7 +712,7 @@ function attemptMove(direction: Direction): void {
   if (gestureSurface) gestureSurface.touchEnabled = false;
   root.keyboardEnabled = false;
   audio.playMove(result);
-  renderScreen(result);
+  renderScreen(result, session.mode === "tutorial");
   root.once(() => {
     sleep(ANIMATION_TIME + 0.04);
     if (session?.runStatus === "playing" && result.spawnEvents.length > 0) audio.playSpawn();

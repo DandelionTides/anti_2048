@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DIFFICULTY_PRESETS, ENDLESS_PRESET, NORMAL_PRESET } from "../Script/Config.ts";
-import { GameSession, endlessNumberPoolForMove, hasAnyLegalMove, initializeBoard } from "../Script/Core.ts";
+import { GameSession, endlessNumberPoolForMove, hasAnyLegalMove, initializeBoard, spawnEndlessTile } from "../Script/Core.ts";
 import { GameTimer, formatTime } from "../Script/GameTimer.ts";
 import { SaveRepository, SAVE_VERSION } from "../Script/SaveData.ts";
 import { boardFromRows, boardToRows } from "./TestBoard.mjs";
+import { TUTORIAL_LEVELS, createTutorialBoard } from "../Script/Tutorial.ts";
 test("ScoreManager awards original split value and never awards merges", () => {
     const splitState = boardFromRows([[8, null], [2, 4]]);
     const splitSession = new GameSession({ ...NORMAL_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0 }, () => 0, undefined, splitState);
@@ -18,25 +19,25 @@ test("ScoreManager awards original split value and never awards merges", () => {
     assert.equal(merge.scoreDelta, 0);
     assert.equal(mergeSession.score, 0);
 });
-test("endless mode spawns NUMBER every move and Divider before NUMBER every second move", () => {
+test("endless mode spawns exactly one randomly selected tile per effective move", () => {
     const initial = boardFromRows([[64, null, null, null], [null, null, null, null], [null, null, null, null], [null, null, null, null]]);
-    const session = new GameSession({ ...ENDLESS_PRESET, initialTileCount: 0, allowedDivisors: [4], endlessNumberStages: [{ fromMove: 1, values: [2] }] }, () => 0, undefined, initial, { mode: "endless" });
+    const values = [0.1, 0, 0, 0.9, 0, 0, 0];
+    const random = () => values.shift() ?? 0;
+    const session = new GameSession({ ...ENDLESS_PRESET, initialTileCount: 0, allowedDivisors: [4], operatorPool: ["DIVIDER"], endlessNumberStages: [{ fromMove: 1, values: [2] }] }, random, undefined, initial, { mode: "endless" });
     const first = session.move("right");
     assert.equal(first.spawnEvents.length, 1);
     assert.equal(first.spawnEvents[0].tile.kind, "NUMBER");
     const second = session.move("left");
-    assert.equal(second.spawnEvents.length, 2);
+    assert.equal(second.spawnEvents.length, 1);
     assert.equal(second.spawnEvents[0].tile.kind, "DIVIDER");
-    assert.equal(second.spawnEvents[1].tile.kind, "NUMBER");
-    assert.equal(second.spawnEvents[1].tile.kind === "NUMBER" && second.spawnEvents[1].tile.value, 2);
 });
-test("with one post-move empty endless mode prioritizes Divider and skips NUMBER", () => {
+test("with one post-move empty endless mode still creates at most one tile", () => {
     const initial = boardFromRows([[2, 2], [8, 16]]);
     const session = new GameSession({ ...ENDLESS_PRESET, boardSize: 2, initialTileCount: 0, minInitialEmptyCells: 0, allowedDivisors: [2], endlessNumberStages: [{ fromMove: 1, values: [1] }] }, () => 0, undefined, initial, { mode: "endless" });
     session.moveCount = 1;
     const result = session.move("left");
     assert.equal(result.spawnEvents.length, 1);
-    assert.equal(result.spawnEvents[0].tile.kind, "DIVIDER");
+    assert.equal(result.spawnEvents[0].tile.kind, "NUMBER");
     assert.equal(result.state.cells.filter(cell => cell.kind === "EMPTY").length, 0);
 });
 test("Game Over checks legal movement and merging rather than only fullness", () => {
@@ -111,7 +112,9 @@ test("all three difficulty presets expose required independent configuration", (
         assert.ok(preset.initialTileCount > 0);
         assert.ok(preset.initialValues.length > 0);
         assert.ok(preset.allowedDivisors.length > 0);
-        assert.equal(preset.dividerSpawnInterval, 2);
+        assert.equal(preset.operatorSpawnInterval, 2);
+        assert.ok(preset.allowedMultipliers.length > 0);
+        assert.ok(preset.operatorPool.includes("MULTIPLIER"));
         assert.equal(typeof preset.defaultTimed, "boolean");
         assert.equal(preset.targetRule, "CLEAR_ALL_NUMBERS");
     }
@@ -131,7 +134,7 @@ test("difficulty initialization uses the configured larger exact totals", () => 
     });
 });
 test("endless number stages increase both maximum value and top-value probability", () => {
-    const moves = [1, 20, 50, 100, 160, 240, 360];
+    const moves = [1, 30, 70, 120, 190, 280, 400];
     let previousMaximum = 0;
     let previousTopChance = 0;
     moves.forEach(move => {
@@ -143,7 +146,100 @@ test("endless number stages increase both maximum value and top-value probabilit
         previousMaximum = maximum;
         previousTopChance = topChance;
     });
-    assert.deepEqual(endlessNumberPoolForMove(ENDLESS_PRESET, 49), ENDLESS_PRESET.endlessNumberStages[1].values);
+    assert.deepEqual(endlessNumberPoolForMove(ENDLESS_PRESET, 69), ENDLESS_PRESET.endlessNumberStages[1].values);
+});
+test("endless operator values remain fixed at late move counts", () => {
+    const early = boardFromRows([[64, null], [null, null]]);
+    const late = boardFromRows([[64, null], [null, null]]);
+    const earlySpawn = spawnEndlessTile(early, { ...ENDLESS_PRESET, boardSize: 2, operatorPool: ["MULTIPLIER"], allowedMultipliers: [2] }, 1, ["MULTIPLIER"], 0, () => 0);
+    const lateSpawn = spawnEndlessTile(late, { ...ENDLESS_PRESET, boardSize: 2, operatorPool: ["MULTIPLIER"], allowedMultipliers: [2] }, 999, ["MULTIPLIER"], 0, () => 0);
+    assert.equal(earlySpawn?.tile.kind === "MULTIPLIER" && earlySpawn.tile.factor, 2);
+    assert.equal(lateSpawn?.tile.kind === "MULTIPLIER" && lateSpawn.tile.factor, 2);
+});
+test("tutorial sequence gates operators and ends with a 60-move endless lesson", () => {
+    assert.equal(TUTORIAL_LEVELS.length, 7);
+    for (let index = 0; index < 5; index += 1) assert.equal(TUTORIAL_LEVELS[index].allowedOperators.includes("COOKIE"), false);
+    assert.equal(TUTORIAL_LEVELS[5].allowedOperators.includes("COOKIE"), true);
+    assert.equal(TUTORIAL_LEVELS[2].allowedOperators.every(kind => kind === "DIVIDER"), true);
+    assert.deepEqual(TUTORIAL_LEVELS[3].allowedOperators, ["DIVIDER", "MULTIPLIER"]);
+    assert.deepEqual(TUTORIAL_LEVELS[4].allowedOperators, ["MULTIPLIER", "ROOT"]);
+    for (let index = 0; index < 6; index += 1) {
+        assert.equal(TUTORIAL_LEVELS[index].goal.clearNumbers, true);
+        assert.equal(TUTORIAL_LEVELS[index].goal.targetMoves, undefined);
+        assert.equal(TUTORIAL_LEVELS[index].barrageMessages.length, 6);
+    }
+    assert.equal(TUTORIAL_LEVELS[6].barrageMessages.length, 6);
+    assert.equal(TUTORIAL_LEVELS[1].generationRules.operatorSequence.length, 6);
+    for (let index = 1; index < 6; index += 1) {
+        assert.ok((TUTORIAL_LEVELS[index].generationRules.operatorSequence?.length ?? 0) >= 3);
+    }
+    assert.equal(TUTORIAL_LEVELS[6].generationRules.kind, "ENDLESS");
+    assert.equal(TUTORIAL_LEVELS[6].goal.targetMoves, 60);
+    assert.equal(createTutorialBoard(TUTORIAL_LEVELS[1]).cells.filter(cell => cell.kind !== "EMPTY").length, 6);
+});
+test("priority and cookie tutorials add a finite process and finish with no numbers", () => {
+    const priority = TUTORIAL_LEVELS[1];
+    const prioritySession = new GameSession(ENDLESS_PRESET, () => 0, undefined, createTutorialBoard(priority), {
+        mode: "tutorial", generationRules: priority.generationRules, tutorialGoal: priority.goal,
+    });
+    const prioritySpawns = [];
+    for (const direction of ["right", "up", "left", "right", "left"]) {
+        prioritySpawns.push(...prioritySession.move(direction).spawnEvents.map(event => event.tile.kind));
+    }
+    assert.ok(prioritySpawns.length >= 3);
+    assert.deepEqual(prioritySpawns.slice(0, 3), ["DIVIDER", "MULTIPLIER", "ROOT"]);
+    assert.equal(prioritySession.status(), "victory");
+    assert.equal(prioritySession.state.cells.some(cell => cell.kind === "NUMBER"), false);
+
+    const cookie = TUTORIAL_LEVELS[5];
+    const cookieSession = new GameSession(ENDLESS_PRESET, () => 0, undefined, createTutorialBoard(cookie), {
+        mode: "tutorial", generationRules: cookie.generationRules, tutorialGoal: cookie.goal,
+    });
+    const firstCookieMove = cookieSession.move("right");
+    assert.equal(firstCookieMove.cookieEvents.some(event => event.triggered), true);
+    assert.equal(cookieSession.scoreMultiplierMovesRemaining, 3);
+    cookieSession.move("right");
+    assert.equal(cookieSession.tutorialProgress.doubledMoves, 1);
+    assert.equal(cookieSession.status(), "playing");
+    cookieSession.move("down");
+    cookieSession.move("down");
+    cookieSession.move("right");
+    assert.equal(cookieSession.tutorialProgress.doubledMoves, 3);
+    assert.equal(cookieSession.status(), "victory");
+    assert.equal(cookieSession.state.cells.some(cell => cell.kind === "NUMBER"), false);
+});
+test("the first six tutorials are completable by eliminating every number", () => {
+    const solutions = [
+        ["right", "right", "down", "down"],
+        ["right", "up", "left", "right", "left"],
+        ["right", "right", "down", "down", "left"],
+        ["right", "left", "up", "up", "right", "left"],
+        ["right", "up", "up", "left", "left", "left", "left", "right"],
+        ["right", "right", "down", "down", "right"],
+    ];
+    for (let levelIndex = 0; levelIndex < solutions.length; levelIndex += 1) {
+        const level = TUTORIAL_LEVELS[levelIndex];
+        const tutorial = new GameSession(ENDLESS_PRESET, () => 0, undefined, createTutorialBoard(level), {
+            mode: "tutorial", generationRules: level.generationRules, tutorialGoal: level.goal,
+        });
+        for (const direction of solutions[levelIndex]) {
+            if (tutorial.runStatus !== "playing") break;
+            tutorial.move(direction);
+        }
+        assert.equal(tutorial.status(), "victory", `tutorial ${level.id} should be completable`);
+        assert.equal(tutorial.state.cells.some(cell => cell.kind === "NUMBER"), false);
+        assert.ok(tutorial.moveCount <= solutions[levelIndex].length);
+    }
+});
+test("finite tutorial wins when the last number disappears beside a multiplier", () => {
+    const state = boardFromRows([[1, "×2"], [null, null]]);
+    const tutorial = new GameSession({ ...ENDLESS_PRESET, boardSize: 2, initialTileCount: 0 }, () => 0, undefined, state, {
+        mode: "tutorial", generationRules: { kind: "NONE" }, tutorialGoal: { clearNumbers: true },
+    });
+    tutorial.move("down");
+    assert.equal(tutorial.state.cells.some(cell => cell.kind === "MULTIPLIER"), true);
+    assert.equal(tutorial.state.cells.some(cell => cell.kind === "NUMBER"), false);
+    assert.equal(tutorial.status(), "victory");
 });
 test("undo history respects its configured finite limit", () => {
     const initial = boardFromRows([

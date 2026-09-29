@@ -26,9 +26,9 @@ export class AudioManager {
   playGameOver(): void { this.play(SFX.gameOver); }
 
   playMove(result: MoveResult): void {
-    if (result.dividerEvents.length > 0) this.play(SFX.divider);
+    if (result.dividerEvents.length > 0 || result.multiplierEvents.length > 0 || result.rootEvents.length > 0 || result.cookieEvents.some(event => event.triggered)) this.play(SFX.divider);
     else if (result.splitEvents.length > 0) this.play(SFX.split);
-    else if (result.mergeEvents.length > 0 || result.dividerMergeEvents.length > 0) this.play(SFX.merge);
+    else if (result.mergeEvents.length > 0 || result.dividerMergeEvents.length > 0 || result.multiplierMergeEvents.length > 0) this.play(SFX.merge);
     else this.play(SFX.move);
   }
 

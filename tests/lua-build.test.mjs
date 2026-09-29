@@ -5,6 +5,7 @@ import test from "node:test";
 const initLua = fs.readFileSync(new URL("../init.lua", import.meta.url), "utf8");
 const coreLua = fs.readFileSync(new URL("../Script/Core.lua", import.meta.url), "utf8");
 const configLua = fs.readFileSync(new URL("../Script/Config.lua", import.meta.url), "utf8");
+const tutorialLua = fs.readFileSync(new URL("../Script/Tutorial.lua", import.meta.url), "utf8");
 const tsconfig = JSON.parse(fs.readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"));
 
 test("compiled rule and difficulty callbacks receive TSTL thisArg before data", () => {
@@ -26,6 +27,10 @@ test("Lua build keeps Dora external and uses compatible implicit-self semantics"
 test("compiled Lua contains progressive endless pools and exact difficulty decks", () => {
   assert.match(coreLua, /endlessNumberPoolForMove/);
   assert.match(coreLua, /preset\.endlessNumberStages/);
-  assert.match(configLua, /fromMove = 360/);
+  assert.match(configLua, /fromMove = 400/);
+  assert.match(configLua, /operatorSpawnInterval = 2/);
+  assert.match(coreLua, /spawnEndlessTile/);
+  assert.match(coreLua, /scoreMultiplierMovesRemaining/);
+  assert.match(tutorialLua, /targetMoves = 60/);
   assert.match(initLua, /总和/);
 });

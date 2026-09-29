@@ -1,5 +1,6 @@
 local ____lualib = require("lualib_bundle")
 local __TS__Class = ____lualib.__TS__Class
+local __TS__ArraySome = ____lualib.__TS__ArraySome
 local ____exports = {}
 local ____Dora = require("Dora")
 local Audio = ____Dora.Audio
@@ -39,11 +40,14 @@ function AudioManager.prototype.playGameOver(self)
     self:play(SFX.gameOver)
 end
 function AudioManager.prototype.playMove(self, result)
-    if #result.dividerEvents > 0 then
+    if #result.dividerEvents > 0 or #result.multiplierEvents > 0 or #result.rootEvents > 0 or __TS__ArraySome(
+        result.cookieEvents,
+        function(____, event) return event.triggered end
+    ) then
         self:play(SFX.divider)
     elseif #result.splitEvents > 0 then
         self:play(SFX.split)
-    elseif #result.mergeEvents > 0 or #result.dividerMergeEvents > 0 then
+    elseif #result.mergeEvents > 0 or #result.dividerMergeEvents > 0 or #result.multiplierMergeEvents > 0 then
         self:play(SFX.merge)
     else
         self:play(SFX.move)
